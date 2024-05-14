@@ -1,5 +1,6 @@
 import time
 import networkx as nx
+import gzip
 from mpi4py import MPI
 
 
@@ -38,32 +39,44 @@ def PCC(iGraph, comm, outfile):
 
 if __name__ == '__main__':
     GraphOne = nx.Graph()
+    GraphTwo = nx.Graph()
 
-    with open('EdgeList.txt', 'r') as f:
+    with gzip.open('twitter_combined.txt.gz', 'rt') as f:
         for line in f:
             edge = line.strip().split()
             GraphOne.add_edge(edge[0], edge[1])
 
-    num_processes = [2, 4, 8, 16]
+    with gzip.open('facebook_combined.txt.gz', 'rt') as f:
+        for line in f:
+            edge = line.strip().split()
+            GraphTwo.add_edge(edge[0], edge[1])
 
-    with open('output.txt', 'w') as outfile:
-        ts = time.time()
-        CCTableOne = SCC(GraphOne)
-        tf = time.time()
-        outfile.write("Serial Algorithm\n")
-        outfile.write("Closeness Centrality Table:\n")
-        for node, centrality in CCTableOne.items():
-            outfile.write(f"{node}: {centrality}\n")
-        ST = tf - ts
-        outfile.write(f"Time taken for SCC: {ST} seconds\n\n")
+    GList = {'Twitter Dataset': GraphOne, 'Facebook Dataset': GraphTwo}
 
-        for np in num_processes:
+    num_processes = [2, 4, 8, 16, 32, 64]
+
+    for Key in GList.keys():
+
+        with open('output.txt', 'w') as outfile:
+            outfile.write(f"{Key}\n")
+
             ts = time.time()
-            comm = MPI.COMM_WORLD.Split(color=MPI.COMM_WORLD.Get_rank() // np)
-            PCC(GraphOne, comm, outfile)
+            CCTableOne = SCC(GList[Key])
             tf = time.time()
-            PT = tf - ts
-            SU = (ST - PT) / ST
-            outfile.write(f"Time taken for closeness centrality with {np} processes: {PT} seconds\n Speed Up: {SU} \n\n")
+            outfile.write("Serial Algorithm\n")
+            outfile.write("Closeness Centrality Table:\n")
+            for node, centrality in CCTableOne.items():
+                outfile.write(f"{node}: {centrality}\n")
+            ST = tf - ts
+            outfile.write(f"Time taken for Serial Algorithm: {ST} seconds\n\n")
+
+            for np in num_processes:
+                ts = time.time()
+                comm = MPI.COMM_WORLD.Split(color=MPI.COMM_WORLD.Get_rank() // np)
+                PCC(GList[Key], comm, outfile)
+                tf = time.time()
+                PT = tf - ts
+                SU = (ST - PT) / ST
+                outfile.write(f"Time taken for closeness centrality with {np} processes: {PT} seconds\n Speed Up: {SU} \n\n")
 
 
