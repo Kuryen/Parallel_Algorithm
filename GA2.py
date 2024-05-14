@@ -1,27 +1,40 @@
 import time
 import networkx as nx
-import matplotlib.pyplot as plt
 from mpi4py import MPI
 
+
 def SCC(iGraph):
-    CCTable = dict()
+    CCTable = {}
     n = len(iGraph) - 1
     for node in iGraph.nodes:
         DTable = nx.shortest_path_length(iGraph, source=node)
-        CCTable[node] = n / sum(value for value in DTable.values())
+        CCTable[node] = n / sum(DTable.values())
     return CCTable
 
-def PCC(iGraph, comm):
-    size = comm.Get_size()
+
+def PCC(iGraph, comm, outfile):
     rank = comm.Get_rank()
+    size = comm.Get_size()
     WList = list(iGraph.nodes)[rank::size]
-    PCCTable = dict()
+    PCCTable = {}
     n = len(iGraph) - 1
     for node in WList:
         DTable = nx.shortest_path_length(iGraph, source=node)
-        PCCTable[node] = n / sum(value for value in DTable.values())
+        PCCTable[node] = n / sum(DTable.values())
     CCTable = comm.gather(PCCTable, root=0)
-    return CCTable
+
+    if rank == 0:
+        combined_centrality = {}
+        for cent_dict in CCTable:
+            combined_centrality.update(cent_dict)
+
+        outfile.write(f"Number of processes: {size}\n")
+        outfile.write("Closeness Centrality Table:\n")
+        for node, centrality in combined_centrality.items():
+            outfile.write(f"{node}: {centrality}\n")
+
+        outfile.write("\n")
+
 
 if __name__ == '__main__':
     GraphOne = nx.Graph()
@@ -31,22 +44,26 @@ if __name__ == '__main__':
             edge = line.strip().split()
             GraphOne.add_edge(edge[0], edge[1])
 
-    ts = time.time()
-    CCTableOne = SCC(GraphOne)
-    tf = time.time()
-    print("SCC Table:", CCTableOne)
-    print("Time taken for SCC:", tf - ts)
+    num_processes = [2, 4, 8, 16]
 
-    ts = time.time()
-    comm = MPI.COMM_WORLD
-    CCTableTwo = PCC(GraphOne, comm)
-    tf = time.time()
-    if comm.rank == 0:
-        combined_centrality = {}
-        for cent_dict in CCTableTwo:
-            combined_centrality.update(cent_dict)
-        print("Closeness Centrality Table:", combined_centrality)
-        print("Time taken for closeness centrality:", tf - ts)
+    with open('output.txt', 'w') as outfile:
+        ts = time.time()
+        CCTableOne = SCC(GraphOne)
+        tf = time.time()
+        outfile.write("Serial Algorithm\n")
+        outfile.write("Closeness Centrality Table:\n")
+        for node, centrality in CCTableOne.items():
+            outfile.write(f"{node}: {centrality}\n")
+        ST = tf - ts
+        outfile.write(f"Time taken for SCC: {ST} seconds\n\n")
 
-    nx.draw(GraphOne, with_labels=True)
-    plt.show()
+        for np in num_processes:
+            ts = time.time()
+            comm = MPI.COMM_WORLD.Split(color=MPI.COMM_WORLD.Get_rank() // np)
+            PCC(GraphOne, comm, outfile)
+            tf = time.time()
+            PT = tf - ts
+            SU = (ST - PT) / ST
+            outfile.write(f"Time taken for closeness centrality with {np} processes: {PT} seconds\n Speed Up: {SU} \n\n")
+
+
